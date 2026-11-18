@@ -156,6 +156,7 @@ function update(shouldPlayPhaseSound = false) {
 }
 
 function stopTimer() {
+  stopKeepAlive();
   if (intervalId !== null) {
     clearInterval(intervalId);
     intervalId = null;
@@ -165,6 +166,7 @@ function stopTimer() {
 function startTimer() {
   if (startedAt !== null || getElapsedSeconds() >= getTotalDurationSeconds()) return;
   prepareAudio();
+  startKeepAlive();
   startedAt = Date.now();
   intervalId = window.setInterval(() => update(true), 200);
   setStartButton("pause", "一時停止");
@@ -289,6 +291,7 @@ function endSeek(event) {
   if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId);
   if (resume && elapsedBeforeStart < getTotalDurationSeconds()) {
     startedAt = Date.now();
+    startKeepAlive();
     intervalId = window.setInterval(() => update(true), 200);
   }
   update();
@@ -297,7 +300,13 @@ function endSeek(event) {
 function prepareAudio() {
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
   if (!AudioContextClass) return;
-  if (!audioContext || audioContext.state === "closed") audioContext = new AudioContextClass();
+  if (!audioContext || audioContext.state === "closed") {
+    stopKeepAlive();
+    audioContext = new AudioContextClass();
+    audioContext.onstatechange = () => {
+      if (audioContext.state !== "running" && audioContext.state !== "closed") audioContext.resume().catch(() => {});
+    };
+  }
   if (audioContext.state !== "running") return audioContext.resume().catch(() => {});
 }
 
@@ -307,6 +316,29 @@ function prepareAudio() {
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden && audioContext) prepareAudio();
 });
+
+// Near-silent tone while running: keeps the context active and the tab exempt from
+// background timer throttling, so phase changes are detected on time.
+let keepAlive = null;
+function startKeepAlive() {
+  if (keepAlive || !audioContext) return;
+  const oscillator = audioContext.createOscillator();
+  const gain = audioContext.createGain();
+  oscillator.frequency.value = 40;
+  gain.gain.value = 0.001;
+  oscillator.connect(gain);
+  gain.connect(audioContext.destination);
+  oscillator.start();
+  keepAlive = oscillator;
+}
+
+function stopKeepAlive() {
+  if (!keepAlive) return;
+  try {
+    keepAlive.stop();
+  } catch {}
+  keepAlive = null;
+}
 
 async function playCompletionSound() {
   if (muted) return;
