@@ -454,5 +454,4 @@ document.addEventListener("fullscreenchange", () => {
   handle.addEventListener("pointercancel", endSeek);
   handle.addEventListener("lostpointercapture", endSeek);
 });
-
 update();
